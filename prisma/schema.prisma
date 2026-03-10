@@ -1,0 +1,396 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User model with role-based access
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  passwordHash  String
+  role          UserRole  @default(CUSTOMER)
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  orders        Order[]
+  reviews       Review[]
+  affiliate     Affiliate?
+  addresses     Address[]
+  wishlist      WishlistItem[]
+  sessions      Session[]
+
+  @@index([email])
+  @@index([role])
+}
+
+enum UserRole {
+  CUSTOMER
+  AFFILIATE
+  ADMIN
+  SUPERADMIN
+}
+
+// Session management for Auth.js
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// Address model for shipping
+model Address {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  street    String
+  city      String
+  state     String
+  zip       String
+  country   String
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  orders    Order[]
+
+  @@index([userId])
+}
+
+// Product model
+model Product {
+  id              String   @id @default(cuid())
+  name            String
+  slug            String   @unique
+  description     String?
+  longDescription String? // Detailed product description
+  price           Float
+  cost            Float?
+  stock           Int      @default(0)
+  sku             String?  @unique
+  category        String
+  subcategory     String?
+  brand           String?
+  images          String[] // JSON array of image URLs
+  featured        Boolean  @default(false)
+  active          Boolean  @default(true)
+  rating          Float    @default(0)
+  reviewCount     Int      @default(0)
+  soldCount       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  orderItems      OrderItem[]
+  reviews         Review[]
+  affiliateLinks  AffiliateLink[]
+  wishlistItems   WishlistItem[]
+  variants        ProductVariant[]
+  specifications  ProductSpecification[]
+  relatedProducts RelatedProduct[] @relation("source")
+  relatedToProducts RelatedProduct[] @relation("related")
+
+  @@index([category])
+  @@index([slug])
+  @@index([featured])
+  @@index([active])
+  @@index([brand])
+}
+
+// Product variants (size, color, etc.)
+model ProductVariant {
+  id          String   @id @default(cuid())
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  name        String   // e.g., "Red - Large"
+  sku         String?
+  price       Float?   // Variant-specific price (null = use product price)
+  stock       Int      @default(0)
+  images      String[] // Variant-specific images
+  attributes  Json     // { "color": "red", "size": "large" }
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([productId])
+  @@unique([productId, sku])
+}
+
+// Product specifications/features
+model ProductSpecification {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  name      String   // e.g., "Material", "Weight", "Warranty"
+  value     String   // e.g., "100% Cotton", "500g", "2 years"
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([productId])
+  @@unique([productId, name])
+}
+
+// Related products
+model RelatedProduct {
+  id           String   @id @default(cuid())
+  sourceId     String
+  source       Product  @relation("source", fields: [sourceId], references: [id], onDelete: Cascade)
+  relatedId    String
+  related      Product  @relation("related", fields: [relatedId], references: [id], onDelete: Cascade)
+  relationshipType String // "similar", "accessory", "alternative"
+  createdAt    DateTime @default(now())
+
+  @@unique([sourceId, relatedId])
+  @@index([sourceId])
+  @@index([relatedId])
+}
+
+// Order model
+model Order {
+  id                  String      @id @default(cuid())
+  orderNumber         String      @unique
+  userId              String
+  user                User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  addressId           String
+  address             Address     @relation(fields: [addressId], references: [id])
+  status              OrderStatus @default(PENDING)
+  subtotal            Float
+  tax                 Float
+  shipping            Float
+  total               Float
+  stripePaymentId     String?
+  affiliateId         String?
+  affiliate           Affiliate?  @relation(fields: [affiliateId], references: [id])
+  affiliateCommission Float?
+  notes               String?
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+
+  // Relations
+  items                OrderItem[]
+  affiliateConversions AffiliateConversion[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([affiliateId])
+  @@index([createdAt])
+}
+
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+}
+
+// Order items (line items)
+model OrderItem {
+  id        String  @id @default(cuid())
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  quantity  Int
+  price     Float   // Price at time of purchase
+  total     Float
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+// Product reviews
+model Review {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rating    Int
+  title     String
+  comment   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([productId])
+  @@index([userId])
+  @@unique([productId, userId])
+}
+
+// Wishlist items
+model WishlistItem {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, productId])
+  @@index([userId])
+  @@index([productId])
+}
+
+// Affiliate model
+model Affiliate {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  affiliateCode   String   @unique
+  commissionRate  Float    @default(0.1) // 10% default
+  status          AffiliateStatus @default(PENDING)
+  bankAccountInfo String? // Encrypted JSON for payout info
+  totalEarnings   Float    @default(0)
+  totalCommissions Float   @default(0)
+  totalPaid       Float    @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  affiliateLinks  AffiliateLink[]
+  clicks          AffiliateClick[]
+  conversions     AffiliateConversion[]
+  payouts         Payout[]
+  orders          Order[]
+
+  @@index([status])
+  @@index([affiliateCode])
+}
+
+enum AffiliateStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  INACTIVE
+}
+
+// Affiliate referral links
+model AffiliateLink {
+  id          String   @id @default(cuid())
+  affiliateId String
+  affiliate   Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+  productId   String?
+  product     Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  trackingCode String  @unique
+  customUrl   String?
+  clicks      Int      @default(0)
+  conversions Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  clickEvents AffiliateClick[]
+
+  @@index([affiliateId])
+  @@index([productId])
+  @@index([trackingCode])
+}
+
+// Track affiliate clicks
+model AffiliateClick {
+  id              String   @id @default(cuid())
+  affiliateLinkId String
+  affiliateLink   AffiliateLink @relation(fields: [affiliateLinkId], references: [id], onDelete: Cascade)
+  affiliateId     String
+  affiliate       Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+  ipAddress       String?
+  userAgent       String?
+  referer         String?
+  createdAt       DateTime @default(now())
+
+  @@index([affiliateLinkId])
+  @@index([affiliateId])
+  @@index([createdAt])
+}
+
+// Track affiliate conversions (orders from affiliate links)
+model AffiliateConversion {
+  id          String   @id @default(cuid())
+  affiliateId String
+  affiliate   Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+  orderId     String
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  commission  Float
+  status      ConversionStatus @default(PENDING)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([affiliateId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum ConversionStatus {
+  PENDING
+  CONFIRMED
+  PAID
+  REFUNDED
+}
+
+// Affiliate payouts
+model Payout {
+  id          String   @id @default(cuid())
+  affiliateId String
+  affiliate   Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+  amount      Float
+  status      PayoutStatus @default(PENDING)
+  method      PayoutMethod @default(BANK_TRANSFER)
+  stripePayoutId String?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([affiliateId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum PayoutStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum PayoutMethod {
+  BANK_TRANSFER
+  PAYPAL
+  STRIPE
+}
+
+// CMS Pages model
+model Page {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  title     String
+  content   String   // Rich text content
+  published Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([slug])
+  @@index([published])
+}
+
+// Analytics/Settings
+model Setting {
+  id    String  @id @default(cuid())
+  key   String  @unique
+  value String
+
+  @@index([key])
+}
