@@ -46,10 +46,13 @@ export default function ProductsAdminPage() {
   }, []);
 
   useEffect(() => {
-    const filtered = products.filter(
+    // Safely ensure products is an array before filtering
+    const safeProducts = Array.isArray(products) ? products : [];
+    
+    const filtered = safeProducts.filter(
       (p) =>
-        p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.sku.toLowerCase().includes(searchTerm.toLowerCase())
+        (p.name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (p.sku || "").toLowerCase().includes(searchTerm.toLowerCase())
     );
     setFilteredProducts(filtered);
   }, [searchTerm, products]);
@@ -59,7 +62,8 @@ export default function ProductsAdminPage() {
       const response = await fetch("/api/admin/products");
       if (response.ok) {
         const data = await response.json();
-        setProducts(data);
+        // Safely extract the array, whether it's direct or nested inside data.products
+        setProducts(Array.isArray(data) ? data : (data.products || []));
       }
     } catch (error) {
       toast.error("Failed to fetch products");
@@ -74,7 +78,9 @@ export default function ProductsAdminPage() {
         method: "DELETE",
       });
       if (response.ok) {
-        setProducts(products.filter((p) => p.id !== id));
+        setProducts((prev) => 
+          (Array.isArray(prev) ? prev : []).filter((p) => p.id !== id)
+        );
         toast.success("Product deleted");
       }
     } catch (error) {
@@ -92,7 +98,7 @@ export default function ProductsAdminPage() {
           </p>
         </div>
         <Button asChild>
-          <Link href="/admin/products-admin/new">
+          <Link href="/products-admin/new">
             <Plus className="w-4 h-4 mr-2" /> Add Product
           </Link>
         </Button>
@@ -147,7 +153,7 @@ export default function ProductsAdminPage() {
                   </TableCell>
                   <TableCell>{product.category}</TableCell>
                   <TableCell className="font-semibold">
-                    ${product.price.toFixed(2)}
+                    ${product.price?.toFixed(2) || "0.00"}
                   </TableCell>
                   <TableCell>{product.stock}</TableCell>
                   <TableCell>
